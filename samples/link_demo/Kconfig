@@ -1,0 +1,69 @@
+# SPDX-License-Identifier: MPL-2.0
+# Copyright (c) 2026 The cappella-mac authors
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+
+menu "cappella-mac link demo"
+
+choice LINK_DEMO_ROLE
+	prompt "Role at boot"
+	default LINK_DEMO_ROLE_NONE
+	help
+	  The role the board takes at boot. "None" waits for the shell
+	  (link ft / link pt); one board must be the FT, the other the PT.
+
+config LINK_DEMO_ROLE_NONE
+	bool "None (shell)"
+
+config LINK_DEMO_ROLE_FT
+	bool "FT (beacons, owns the schedule)"
+
+config LINK_DEMO_ROLE_PT
+	bool "PT (searches, associates with the FT)"
+
+endchoice
+
+config LINK_DEMO_NETWORK_ID
+	hex "Network id (both boards; the low byte must not be 0)"
+	default 0x0000a501
+
+config LINK_DEMO_BAND
+	int "DECT NR+ band"
+	default 1
+	help
+	  Make sure the band, carriers and power are allowed where you run
+	  the demo. Band 1: 1880-1900 MHz (carriers 1657-1677), band 2:
+	  1900-1920 MHz, band 9: 1920-1930 MHz (carriers 1703-1711). The
+	  modem reports what it supports at boot.
+
+config LINK_DEMO_CH_MIN
+	int "Lowest carrier of the set"
+	default 1657
+
+config LINK_DEMO_CH_MAX
+	int "Highest carrier of the set"
+	default 1677
+
+config LINK_DEMO_CHANNEL
+	int "FT carrier (0: pick the quietest by an RSSI scan)"
+	default 0
+
+config LINK_DEMO_TX_POWER_DBM
+	int "TX power (dBm; rounded down to a DECT power step)"
+	default 4
+	range -40 19
+
+config LINK_DEMO_PLAN
+	int "Frame plan (0 A, 2 B, 3 H, 4 H4; docs/mac-design.md)"
+	default 3
+
+config LINK_DEMO_PLAN_AUTO
+	bool "FT switches to the bulk plans under bulk traffic"
+	default y
+
+endmenu
+
+source "Kconfig.zephyr"

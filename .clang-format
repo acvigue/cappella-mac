@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: MPL-2.0
+# Copyright (c) 2026 The cappella-mac authors
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+#
+# Zephyr-like style (tabs, 100 columns, Linux braces). CI checks it with
+# clang-format 21.1.8 (pip install clang-format==21.1.8).
+---
+BasedOnStyle: LLVM
+AlignConsecutiveMacros: AcrossComments
+AllowShortBlocksOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortEnumsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+AttributeMacros:
+  - __aligned
+  - __packed
+  - __printf_like
+BitFieldColonSpacing: After
+BreakBeforeBraces: Linux
+ColumnLimit: 100
+ContinuationIndentWidth: 8
+IndentCaseLabels: false
+IndentGotoLabels: false
+IndentWidth: 8
+InsertBraces: true
+InsertNewlineAtEOF: true
+SortIncludes: Never
+SpaceBeforeParens: ControlStatementsExceptControlMacros
+UseTab: ForContinuationAndIndentation
+WhitespaceSensitiveMacros:
+  - IF_ENABLED
+  - IF_DISABLED
+  - COND_CODE_0
+  - COND_CODE_1
+  - STRINGIFY

@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: MPL-2.0
+# Copyright (c) 2026 The cappella-mac authors
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+# cappella-mac as a Zephyr module: list it in your west manifest, or add it with
+#   list(APPEND EXTRA_ZEPHYR_MODULES <path to cappella-mac>)
+# before find_package(Zephyr), then CONFIG_TDMA_MAC=y (and CONFIG_TDMA_NRF_DECT_PHY=y
+# for the nRF91 port).
+name: cappella-mac
+build:
+  cmake: zephyr
+  kconfig: zephyr/Kconfig
+samples:
+  - samples

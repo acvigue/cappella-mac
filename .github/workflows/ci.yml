@@ -1,0 +1,137 @@
+# SPDX-License-Identifier: MPL-2.0
+# Copyright (c) 2026 The cappella-mac authors
+#
+# lint:   clang-format check, cppcheck on src/ and port/ (ci/lint.sh)
+# build:  the host build (library + simulator) with gcc and clang, -Wall -Wextra -Werror;
+#         the Zephyr sample for nrf9151dk/nrf9151/ns in Nordic's toolchain container
+#         (the NCS version in NCS_VERSION), zero compiler warnings
+# test:   ctest on the simulations (gcc), and once more under ASan + UBSan (clang)
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q cppcheck
+          pip install clang-format==21.1.8
+      - name: Lint
+        run: ci/lint.sh
+
+  build-host:
+    name: build host (${{ matrix.cc }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: sudo apt-get update -q && sudo apt-get install -y -q cmake ninja-build clang
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=${{ matrix.cc }}
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCAPPELLA_MAC_WERROR=ON
+      - name: Build
+        run: cmake --build build
+
+  build-sample:
+    name: build sample (nrf9151dk/nrf9151/ns)
+    runs-on: ubuntu-24.04
+    container:
+      # Nordic's toolchain image; BASH_ENV puts the NCS toolchain on PATH.
+      image: ghcr.io/nrfconnect/sdk-nrf-toolchain:v3.4.1
+    defaults:
+      run:
+        shell: bash
+    env:
+      NCS: v3.4.1
+      WS: /__w/ncs
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: cappella-mac
+      - name: NCS version matches NCS_VERSION
+        run: test "$(cat cappella-mac/NCS_VERSION)" = "$NCS"
+      - name: Cache NCS workspace
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.WS }}
+          key: ncs-${{ env.NCS }}
+      - name: Fetch nRF Connect SDK
+        run: |
+          if [ ! -d "$WS/.west" ]; then
+            west init -m https://github.com/nrfconnect/sdk-nrf --mr "$NCS" "$WS"
+          fi
+          cd "$WS"
+          west update --narrow --fetch-opt=--depth=1
+          west zephyr-export
+      - name: Build
+        run: |
+          set -o pipefail
+          source "$WS/zephyr/zephyr-env.sh"
+          for v in "" "-DEXTRA_CONF_FILE=overlay-sec.conf"; do
+            west build -p always -b nrf9151dk/nrf9151/ns -d "$RUNNER_TEMP/build" \
+              cappella-mac/samples/link_demo -- $v 2>&1 | tee -a "$RUNNER_TEMP/build.log"
+          done
+          # zero compiler warnings (Kconfig notices are not compiler warnings)
+          if grep -E '^[^ ]+:[0-9]+:[0-9]+: warning:' "$RUNNER_TEMP/build.log"; then
+            echo "::error::compiler warnings"
+            exit 1
+          fi
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: link_demo-nrf9151dk
+          path: ${{ runner.temp }}/build/link_demo/zephyr/tfm_merged.hex
+          if-no-files-found: error
+
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: sudo apt-get update -q && sudo apt-get install -y -q cmake ninja-build
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=gcc -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake --build build
+      - name: ctest
+        run: ctest --test-dir build -j "$(nproc)" --output-on-failure
+
+  test-sanitizers:
+    name: test (ASan + UBSan)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: sudo apt-get update -q && sudo apt-get install -y -q cmake ninja-build clang
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_BUILD_TYPE=Debug \
+            -DCAPPELLA_MAC_SANITIZE=ON
+          cmake --build build
+      - name: ctest
+        env:
+          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: ctest --test-dir build -j "$(nproc)" --output-on-failure --timeout 1800

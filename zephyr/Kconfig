@@ -1,0 +1,187 @@
+# SPDX-License-Identifier: MPL-2.0
+# Copyright (c) 2026 The cappella-mac authors
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+#
+# cappella-mac: a TDMA MAC for DECT NR+ on Nordic's DECT PHY firmware
+# (docs/mac-design.md, docs/porting.md).
+
+menuconfig TDMA_MAC
+	bool "cappella-mac: TDMA MAC for DECT NR+"
+	help
+	  Scheduled-slot MAC (beacon + per-PT DL/UL bursts, on-demand long
+	  bursts, relays) on top of a DECT NR+ PHY. The library is OS-free;
+	  the platform side (struct tdma_port) is the nRF91 port
+	  (TDMA_NRF_DECT_PHY) or your own.
+
+if TDMA_MAC
+
+config TDMA_MAC_MAX_POSITIONS
+	int "PT positions per FT"
+	default 10
+	range 2 16
+	help
+	  Upper bound for the plans that can be used; the 1x10 plan needs 10,
+	  plan A and H4 4, the others 2. Each position costs one peer link
+	  (queue + reassembly buffer, about 4 KB with the defaults) in
+	  struct tdma_mac, on PTs too since a PT can be promoted to FT.
+
+config TDMA_MAC_TXQ_PDUS
+	int "PDU descriptors per peer (data PDUs in flight + parts to resend)"
+	default 20
+	range 18 255
+	help
+	  Fragments are cut from the queued SDU when a burst is built. A
+	  descriptor holds one PDU in flight (the ARQ window is 16) or a
+	  part of an SDU cut off a resend.
+
+config TDMA_MAC_TXQ_BYTES
+	int "SDU bytes queued per peer"
+	default 7680
+	range 5120 8192
+	help
+	  In 64-byte chunks. The whole-frame plans (T2, T2D) use all of it
+	  (six 1280-byte SDUs), plan T 5120 (four), the others 2560 (two).
+
+config TDMA_MAC_TXQ_PRIO_BYTES
+	int "SDU bytes per peer only priority (one-PDU) SDUs may take"
+	default 256
+	range 0 1024
+	help
+	  On top of TDMA_MAC_TXQ_BYTES, in 64-byte chunks, plus 4 SDU
+	  entries: a small packet never waits for a bulk SDU to be acked.
+
+config TDMA_MAC_TXQ_SDUS
+	int "SDUs queued per peer"
+	default 24
+	range 4 255
+
+config TDMA_MAC_RAS_SLOTS
+	int "Reassembly buffers (TDMA_MAC_MAX_SDU each, shared by all peers)"
+	default 7
+	range 1 32
+	help
+	  A peer reassembles up to TDMA_RAS_PER_LINK (6) SDUs at a time from
+	  these: a train plan's sender keeps 6 fragmented SDUs in flight. A
+	  fragment that finds none free is not acked; its sender resends it.
+
+config TDMA_MAC_TX_SDU_INFLIGHT
+	int "Fragmented SDUs a sender has in flight per peer"
+	default 2
+	range 1 3
+	help
+	  Both ends must use the same value: the receiver frees a buffer
+	  whose tag is this many tags behind the newest it has seen.
+
+config TDMA_MAC_PDU_MAX
+	int "Largest single PDU (data header + SDU bytes)"
+	default 113
+	range 32 251
+	help
+	  Upper bound for one queued PDU; each link further limits it to what
+	  its bursts carry at the MCS in use (2 ss at MCS 4 = 117 B minus the
+	  4-byte MIC reserve). Sets the size of every queue entry.
+
+config TDMA_MAC_MAX_SDU
+	int "Largest SDU (IPv6 needs 1280)"
+	default 1280
+	range 64 2560
+
+config TDMA_MAC_COMMIT_LEAD_US
+	int "Commit lead: ops are handed to the PHY this long before they start (us)"
+	default 1000
+	range 500 5000
+	help
+	  The nRF91 PHY needs >= 465 us (TX) / 390 us (RX) from "now", and
+	  the port's notion of modem time is an extrapolation from the last
+	  event (docs/phy-timing.md), so 1 ms. A burst's payload is frozen
+	  at this point: every microsecond here is one-way latency.
+
+config TDMA_MAC_SEC_MIC_LEN
+	int "Link security: MIC bytes per PHY packet (4, 6 or 8)"
+	default 4
+	range 4 8
+	help
+	  AES-128-CCM tag length of every secured burst. 4 is the design
+	  default; every extra MIC byte comes off each burst's payload. Only
+	  used when the port provides tdma_sec_ops.
+
+config TDMA_SEC_REF
+	bool "Reference link-security backend (software AES-CCM, keys in RAM)"
+	help
+	  struct tdma_sec_ops in portable C (cappella/tdma_sec_ref.h): for
+	  bring-up and as a template. Slow, not constant time, no key
+	  protection: use a hardware AES and a secure key store in products.
+
+config TDMA_NRF_DECT_PHY
+	bool "nRF91 port: the MAC on nrf_modem_dect_phy"
+	depends on NRF_MODEM_LIB
+	depends on SOC_SERIES_NRF91X || SOC_SERIES_NRF91
+	help
+	  struct tdma_port on Nordic's DECT NR+ PHY API (modem firmware
+	  mfw-nr+ 2.0.0; build with NRF_MODEM_LINK_BINARY_DECT_PHY): PHY
+	  event queue, modem time, op table, quiet window, bring-up and
+	  dispatch (cappella/tdma_nrf.h).
+
+if TDMA_NRF_DECT_PHY
+
+config TDMA_NRF_EVT_QUEUE
+	int "PHY event queue depth (received payloads: half as many 700 B buffers)"
+	default 16
+	range 8 128
+
+config TDMA_NRF_OPS
+	int "PHY ops in flight (all MAC instances)"
+	default 16
+	range 4 64
+
+config TDMA_NRF_QUIET_US
+	int "No other op request this long before an op's start (us, 0 = off)"
+	default 650
+	range 0 1000
+	help
+	  The modem fails an op it has accepted with OP_TIMEOUT (0x1005) when
+	  another op request reaches it ~0.23-0.6 ms before that op's start.
+	  A PHY call that would land between this and TDMA_NRF_QUIET_LATE_US
+	  before a pending op's start waits until the latter, when its own op
+	  still has the PHY lead after that (docs/phy-timing.md, "Quiet
+	  window"). Changeable at run time (tdma_nrf_set_quiet()).
+
+config TDMA_NRF_QUIET_LATE_US
+	int "End of the quiet window before an op's start (us)"
+	default 200
+	range 0 1000
+
+config TDMA_NRF_RUNNER
+	bool "A simple MAC thread for one instance (tdma_nrf_runner.h)"
+	help
+	  Owns one struct tdma_mac, takes the port's events, ticks the MAC
+	  and serialises every call into it behind one mutex. Enough for a
+	  single FT or PT; a relay (two instances on one radio) needs its own
+	  thread (docs/porting.md).
+
+if TDMA_NRF_RUNNER
+
+config TDMA_NRF_RUNNER_STACK_SIZE
+	int "MAC thread stack size"
+	default 3072
+
+config TDMA_NRF_RUNNER_PRIO
+	int "MAC thread priority (cooperative)"
+	default 0
+	help
+	  The MAC thread must preempt anything that can hold the CPU for
+	  more than a few hundred microseconds: its commits are due 1 ms
+	  before air. Used as K_PRIO_COOP(n).
+
+endif # TDMA_NRF_RUNNER
+
+module = TDMA_NRF
+module-str = cappella-mac nRF91 port
+source "subsys/logging/Kconfig.template.log_config"
+
+endif # TDMA_NRF_DECT_PHY
+
+endif # TDMA_MAC

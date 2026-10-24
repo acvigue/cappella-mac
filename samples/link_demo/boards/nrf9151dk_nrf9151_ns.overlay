@@ -1,0 +1,66 @@
+/*
+ * SPDX-License-Identifier: MPL-2.0
+ * Copyright (c) 2026 The cappella-mac authors
+ *
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ */
+
+/*
+ * nRF9151 DK: RAM split for the DECT NR+ modem firmware. Its IPC control
+ * area is larger than the cellular firmware's (CONFIG_NRF_MODEM_LIB_SHMEM_CTRL_SIZE),
+ * so the modem shared area is laid out here. Flash: NCS's layout without a
+ * bootloader.
+ */
+
+#include <samples/cellular/nrf91_no_bootloader_partitions.dtsi>
+
+/delete-node/ &sram0_s;
+/delete-node/ &sram0_ns;
+
+&sram0 {
+	/*
+	 * 0x2000_0000  secure RAM                        32 kB
+	 * 0x2000_8000  non-secure RAM                   224 kB
+	 *   0x2000_8000  modem shared memory          20264 B
+	 *     control                                  1832 B
+	 *     application -> modem                    12288 B
+	 *     modem -> application                     6144 B
+	 *   0x2000_cf28  application RAM             209112 B
+	 */
+	sram0_s: sram@0 {
+		reg = <0x0 0x8000>;
+	};
+
+	sram0_ns: sram@8000 {
+		reg = <0x8000 0x38000>;
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges = <0x0 0x8000 0x38000>;
+
+		/* the modem's shared memory must be in the first 128 kB of RAM */
+		sram0_ns_modem: sram0_ns@0 {
+			reg = <0x0 0x4f28>;
+			#address-cells = <1>;
+			#size-cells = <1>;
+			ranges = <0x0 0x0 0x4f28>;
+
+			cpuapp_cpucell_ipc_shm_ctrl: sram0_ns_modem@0 {
+				reg = <0x0 0x728>;
+			};
+
+			cpuapp_cpucell_ipc_shm_heap: sram0_ns_modem@728 {
+				reg = <0x728 0x3000>;
+			};
+
+			cpucell_cpuapp_ipc_shm_heap: sram0_ns_modem@3728 {
+				reg = <0x3728 0x1800>;
+			};
+		};
+
+		sram0_ns_app: sram0_ns@4f28 {
+			reg = <0x4f28 0x330d8>;
+		};
+	};
+};
