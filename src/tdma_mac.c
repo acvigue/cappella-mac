@@ -805,7 +805,7 @@ static void pt_status_rec(struct tdma_mac *m, size_t *off, size_t cap)
 		.flags = (uint8_t)((m->cfg.relay ? TDMA_STF_RELAY : 0) |
 				   (m->hgx_ok ? TDMA_STF_HGX : 0)),
 		.queued = (uint16_t)(q > 0xffff ? 0xffff : q),
-		.snr = m->dl_snr_valid ? (int8_t)(m->dl_snr_q4 / 16) : (int8_t)TDMA_SNR_UNKNOWN,
+		.snr = (int8_t)(m->dl_snr_valid ? m->dl_snr_q4 / 16 : TDMA_SNR_UNKNOWN),
 		.rssi = m->dl_rssi,
 	};
 	int n = tdma_status_encode(&st, m->pkt_buf + *off + TDMA_REC_HDR_LEN,
